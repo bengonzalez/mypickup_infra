@@ -1,2 +1,38 @@
 # Infrastructure for TNS project
 
+Terraform for the Azure infra behind [mypickup_django](https://github.com/bengonzalez/mypickup_django):
+
+- **Azure Container Apps** (Consumption plan) running the Django container, `min_replicas = 0` / `max_replicas = 1` so it scales to zero when idle and wakes on the next request.
+- **Azure Container Registry** (Basic SKU) to hold the Docker image. The Container App pulls via its system-assigned managed identity (`AcrPull` role) — no registry credentials stored anywhere.
+- **Storage Account + Azure Files share**, mounted into the container at `/mnt/media`, so Django's uploaded media (`MEDIA_ROOT_PATH`) and the SQLite database file (`SQLITE_PATH` → `/mnt/media/db.sqlite3`) both survive restarts/scale-to-zero. Everything else on the container's local filesystem is still ephemeral.
+- **Log Analytics workspace** for the Container App Environment's logs.
+
+## Provisioning (this repo)
+
+State is stored remotely in the `terraform` container of the `stgbackendtfbg` storage account (`rg-storage-backend`, see `providers.tf`'s `backend "azurerm"` block), so `terraform apply` can safely run from CI.
+
+`.github/workflows/terraform.yml` runs `terraform plan` on pull requests and `terraform apply` on push to `main`, authenticated via OIDC (no stored client secret — see `ARM_USE_OIDC` in the workflow).
+
+An SPN with an OIDC federated credential trusting this repo's GitHub Actions already exists (set up outside Terraform/these scripts). One-time setup to finish wiring it up:
+
+1. `az login` as a user who can create subscription-level role assignments (e.g. Owner), then run:
+   `./scripts/grant-terraform-spn-roles.sh <spn-client-id>`
+   This grants that SPN `Contributor` + `Role Based Access Control Administrator` at subscription scope — broader than the app-deploy SPN below, because this one has to create the resource group itself and the `AcrPull` role assignment Terraform defines (plain `Contributor` can't create role assignments). See the script's comments if you'd rather scope this down to a resource group.
+2. On the `mypickup_infra` repo, set secrets: `AZURE_CLIENT_ID` (the SPN's client ID), `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `DJANGO_SECRET_KEY`, `EMAIL_USER`, `EMAIL_PASS` (the script prints the non-secret-specific ones).
+3. Push to `main` (or use `workflow_dispatch`) to run the first `apply`.
+
+Terraform's `container_image` defaults to a public placeholder so the first `apply` succeeds before any image exists in the ACR; it's set to ignore drift on that field afterwards since the app-deploy pipeline owns it from then on.
+
+To inspect outputs (e.g. the ACR name, which has a random suffix) without re-applying: `terraform init && terraform output`.
+
+## App deploy (mypickup_django repo)
+
+Once the infra above exists, set up the narrower SPN that builds/pushes the image and rolls out new revisions:
+
+1. `./scripts/bootstrap-oidc.sh <github-org> mypickup_django main` — creates an SPN with OIDC federated credentials and least-privilege roles (`AcrPush` on the registry, `Container Apps Contributor` on the container app). Prints the GitHub secrets/variables to set.
+2. On the `mypickup_django` repo, set:
+   - Secrets: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`
+   - Variables: `ACR_NAME`, `ACR_LOGIN_SERVER`, `RESOURCE_GROUP_NAME`, `CONTAINER_APP_NAME`
+3. Push to `main` — `.github/workflows/deploy.yml` builds the image, pushes to ACR, and updates the Container App's running revision.
+
+

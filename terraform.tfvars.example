@@ -1,0 +1,10 @@
+# Copy to terraform.tfvars (gitignored) and fill in real values.
+# Never commit terraform.tfvars.
+
+project_name = "mypickup"
+environment  = "dev"
+location     = "eastus"
+
+django_secret_key = "replace-with-a-long-random-value"
+email_user        = ""
+email_pass        = ""
