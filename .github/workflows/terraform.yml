@@ -33,6 +33,7 @@ env:
 jobs:
   terraform:
     runs-on: ubuntu-latest
+    environment: prod
     steps:
       - name: Checkout
         uses: actions/checkout@v4
