@@ -74,9 +74,13 @@ resource "random_password" "postgres_admin" {
 }
 
 resource "azurerm_postgresql_flexible_server" "main" {
-  name                          = "psql-${local.name_prefix}-${random_string.suffix.result}"
-  resource_group_name           = azurerm_resource_group.main.name
-  location                      = azurerm_resource_group.main.location
+  name                = "psql-${local.name_prefix}-${random_string.suffix.result}"
+  resource_group_name = azurerm_resource_group.main.name
+  # Flexible Server provisioning is restricted for this subscription in
+  # var.location (eastus) - confirmed via the capabilities API, which
+  # returns restricted=true and an empty supported-version list there.
+  # var.postgres_location picks a nearby unrestricted region instead.
+  location                      = var.postgres_location
   version                       = var.postgres_version
   administrator_login           = var.postgres_admin_login
   administrator_password        = random_password.postgres_admin.result
