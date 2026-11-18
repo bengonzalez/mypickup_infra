@@ -77,3 +77,33 @@ variable "media_share_quota_gb" {
   type        = number
   default     = 5
 }
+
+variable "postgres_admin_login" {
+  description = "Administrator login for the PostgreSQL Flexible Server."
+  type        = string
+  default     = "mypickupadmin"
+}
+
+variable "postgres_db_name" {
+  description = "Name of the application database on the PostgreSQL Flexible Server."
+  type        = string
+  default     = "mypickup"
+}
+
+variable "postgres_sku_name" {
+  description = "SKU for the PostgreSQL Flexible Server, in tier_family_cores form (e.g. B_Standard_B1ms)."
+  type        = string
+  default     = "B_Standard_B1ms"
+}
+
+variable "postgres_storage_mb" {
+  description = "Storage (in MB) provisioned for the PostgreSQL Flexible Server."
+  type        = number
+  default     = 32768
+}
+
+variable "postgres_version" {
+  description = "PostgreSQL major version for the Flexible Server."
+  type        = string
+  default     = "16"
+}
