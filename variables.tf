@@ -107,3 +107,9 @@ variable "postgres_version" {
   type        = string
   default     = "16"
 }
+
+variable "postgres_location" {
+  description = "Azure region for the PostgreSQL Flexible Server. Separate from var.location because Flexible Server provisioning is restricted for this subscription in eastus."
+  type        = string
+  default     = "eastus2"
+}
