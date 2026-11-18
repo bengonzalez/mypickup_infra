@@ -91,9 +91,9 @@ variable "postgres_db_name" {
 }
 
 variable "postgres_sku_name" {
-  description = "SKU for the PostgreSQL Flexible Server, in tier_family_cores form (e.g. B_Standard_B1ms)."
+  description = "SKU for the PostgreSQL Flexible Server, in tier_family_cores form (e.g. B_Standard_B2s). B_Standard_B1ms failed with SkuNotAvailable (no real-time capacity) in eastus2 despite being listed in the region's SKU catalog."
   type        = string
-  default     = "B_Standard_B1ms"
+  default     = "B_Standard_B2s"
 }
 
 variable "postgres_storage_mb" {
