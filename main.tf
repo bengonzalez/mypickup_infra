@@ -40,10 +40,9 @@ resource "azurerm_container_registry" "main" {
   admin_enabled       = false
 }
 
-# Storage account backing Django's persistent media uploads (MEDIA_ROOT_PATH)
-# and the SQLite database file (SQLITE_PATH). The Container App's local
-# filesystem is otherwise ephemeral, so without this, both uploaded profile
-# pics and the database would be wiped on every scale-to-zero/restart.
+# Storage account backing Django's persistent media uploads (MEDIA_ROOT_PATH).
+# The Container App's local filesystem is otherwise ephemeral, so without
+# this, uploaded profile pics would be wiped on every scale-to-zero/restart.
 resource "azurerm_storage_account" "media" {
   name                     = "st${var.project_name}${random_string.suffix.result}"
   resource_group_name      = azurerm_resource_group.main.name
@@ -66,6 +65,41 @@ resource "azurerm_container_app_environment_storage" "media" {
   share_name                   = azurerm_storage_share.media.name
   access_key                   = azurerm_storage_account.media.primary_access_key
   access_mode                  = "ReadWrite"
+}
+
+resource "random_password" "postgres_admin" {
+  length           = 24
+  special          = true
+  override_special = "!#$%&*()-_=+[]{}<>:?"
+}
+
+resource "azurerm_postgresql_flexible_server" "main" {
+  name                          = "psql-${local.name_prefix}-${random_string.suffix.result}"
+  resource_group_name           = azurerm_resource_group.main.name
+  location                      = azurerm_resource_group.main.location
+  version                       = var.postgres_version
+  administrator_login           = var.postgres_admin_login
+  administrator_password        = random_password.postgres_admin.result
+  storage_mb                    = var.postgres_storage_mb
+  sku_name                      = var.postgres_sku_name
+  public_network_access_enabled = true
+}
+
+resource "azurerm_postgresql_flexible_server_database" "main" {
+  name      = var.postgres_db_name
+  server_id = azurerm_postgresql_flexible_server.main.id
+  collation = "en_US.utf8"
+  charset   = "utf8"
+}
+
+# Flexible Server's special 0.0.0.0-0.0.0.0 rule means "allow any Azure
+# service," not "allow the public internet" - needed since the Container App
+# isn't VNet-integrated and reaches this over the public endpoint.
+resource "azurerm_postgresql_flexible_server_firewall_rule" "allow_azure_services" {
+  name             = "AllowAllAzureServices"
+  server_id        = azurerm_postgresql_flexible_server.main.id
+  start_ip_address = "0.0.0.0"
+  end_ip_address   = "0.0.0.0"
 }
 
 resource "azurerm_container_app" "main" {
@@ -96,6 +130,11 @@ resource "azurerm_container_app" "main" {
   secret {
     name  = "email-pass"
     value = var.email_pass
+  }
+
+  secret {
+    name  = "postgres-password"
+    value = random_password.postgres_admin.result
   }
 
   template {
@@ -134,11 +173,6 @@ resource "azurerm_container_app" "main" {
       }
 
       env {
-        name  = "SQLITE_PATH"
-        value = "/mnt/media/db.sqlite3"
-      }
-
-      env {
         name        = "EMAIL_USER"
         secret_name = "email-user"
       }
@@ -146,6 +180,26 @@ resource "azurerm_container_app" "main" {
       env {
         name        = "EMAIL_PASS"
         secret_name = "email-pass"
+      }
+
+      env {
+        name  = "POSTGRES_HOST"
+        value = azurerm_postgresql_flexible_server.main.fqdn
+      }
+
+      env {
+        name  = "POSTGRES_DB"
+        value = azurerm_postgresql_flexible_server_database.main.name
+      }
+
+      env {
+        name  = "POSTGRES_USER"
+        value = var.postgres_admin_login
+      }
+
+      env {
+        name        = "POSTGRES_PASSWORD"
+        secret_name = "postgres-password"
       }
 
       volume_mounts {
@@ -163,8 +217,11 @@ resource "azurerm_container_app" "main" {
 
   ingress {
     external_enabled = true
-    target_port      = 8000
-    transport        = "auto"
+    # Gunicorn (see entrypoint.sh in mypickup_django) binds 8000. The real
+    # image is live now, so this must stay 8000 - reverting to the old
+    # placeholder value of 80 breaks health probes and the app's URL.
+    target_port = 8000
+    transport   = "auto"
 
     traffic_weight {
       latest_revision = true
